@@ -60,10 +60,15 @@ def callback(msg):
     print('sample point max =', sample_point_max, '  sample point min =', sample_point_min)
     print('sample point mean =', sample_point_mean)
     print('precision =', sample_point_max - sample_point_min)
-    #real range max = 4.196000099182129   real range min = 0.09099999815225601
+    # real range max = 4.196000099182129   real range min = 0.09099999815225601
     # sample point max = 0.5199999809265137   sample point min = 0.5180000066757202
-    # sample point mean = 0.5191752492767019 real = 0.51
+    # sample point mean = 0.5191752492767019   real = 0.51
     # precision = 0.001999974250793457
+    
+    # real range max = 4.197999954223633   real range min = 0.09099999815225601
+    # sample point max = 1.6579999923706055   sample point min = 1.625
+    # sample point mean = 1.6388787898150357   real = 1.652
+    # precision = 0.03299999237060547
 
 
 
