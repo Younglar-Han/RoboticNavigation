@@ -8,10 +8,14 @@ pub = rospy.Publisher('/revised_scan', LaserScan, queue_size = 10)
 scann = LaserScan()
 real_range_max_golbal = 0.0
 real_range_min_global = 10.0
+sample_point_max = 0.0
+sample_point_min = 10.0
 
 def callback(msg):
     global real_range_max_golbal
     global real_range_min_global
+    global sample_point_max
+    global sample_point_min
     current_time = rospy.Time.now()
     scann.header.stamp = current_time
     scann.header.frame_id = 'laser'
@@ -22,7 +26,7 @@ def callback(msg):
     scann.scan_time = msg.scan_time
     scann.range_min = 0.119999997318
     scann.range_max = 3.5
-    scann.ranges = msg.ranges
+    scann.ranges = msg.ranges[180]
     scann.intensities = msg.intensities
     
     # detect the min and max range #
@@ -38,7 +42,14 @@ def callback(msg):
     print('real range max =', real_range_max_golbal, '  real range min =', real_range_min_global)
     
     # compute the precision #
-    
+    if msg.ranges[0] > sample_point_max and msg.ranges[0] != 0.0:
+        sample_point_max = msg.ranges[0]
+    if msg.ranges[0] < sample_point_min and msg.ranges[0] != 0.0:
+        sample_point_min = msg.ranges[0]
+    print('sample point max =', sample_point_max, '  sample point min =', sample_point_min)
+    print('precision =', sample_point_max - sample_point_min)
+
+
 
 def listener():
     rospy.init_node('revised_scan', anonymous=True)
