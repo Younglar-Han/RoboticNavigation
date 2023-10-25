@@ -34,12 +34,13 @@ def callback(msg):
     scann.range_max = 3.5
     scann.ranges = msg.ranges[180]
     scann.intensities = msg.intensities
+    pub.publish(scann)
     
     # detect the min and max range #
     real_range_max = max(msg.ranges)
     real_range_min = 10.0
     for i in range(len(msg.ranges)):
-        if msg.ranges[i] < real_range_min and msg.ranges[i] > 0.01:
+        if msg.ranges[i] < real_range_min and msg.ranges[i] != 0.0:
             real_range_min = msg.ranges[i]
     if real_range_max > real_range_max_golbal:
         real_range_max_golbal = real_range_max
