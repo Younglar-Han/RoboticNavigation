@@ -10,12 +10,18 @@ real_range_max_golbal = 0.0
 real_range_min_global = 10.0
 sample_point_max = 0.0
 sample_point_min = 10.0
+sample_point_sum = 0.0
+sample_point_mean = 0.0
+sample_point_num = 0
 
 def callback(msg):
     global real_range_max_golbal
     global real_range_min_global
     global sample_point_max
     global sample_point_min
+    global sample_point_sum
+    global sample_point_mean
+    global sample_point_num
     current_time = rospy.Time.now()
     scann.header.stamp = current_time
     scann.header.frame_id = 'laser'
@@ -41,13 +47,23 @@ def callback(msg):
         real_range_min_global = real_range_min
     print('real range max =', real_range_max_golbal, '  real range min =', real_range_min_global)
     
-    # compute the precision #
+    # compute the precision and accuracy #
     if msg.ranges[0] > sample_point_max and msg.ranges[0] != 0.0:
         sample_point_max = msg.ranges[0]
     if msg.ranges[0] < sample_point_min and msg.ranges[0] != 0.0:
         sample_point_min = msg.ranges[0]
+    if msg.ranges[0] != 0.0:
+        sample_point_sum += msg.ranges[0]
+        sample_point_num += 1
+        sample_point_mean = sample_point_sum / sample_point_num
+    
     print('sample point max =', sample_point_max, '  sample point min =', sample_point_min)
+    print('sample point mean =', sample_point_mean)
     print('precision =', sample_point_max - sample_point_min)
+    #real range max = 4.196000099182129   real range min = 0.09099999815225601
+    # sample point max = 0.5199999809265137   sample point min = 0.5180000066757202
+    # sample point mean = 0.5191752492767019 real = 0.51
+    # precision = 0.001999974250793457
 
 
 
