@@ -24,10 +24,11 @@ def callback(msg):
     scann.range_max = 3.5
     scann.ranges = msg.ranges
     scann.intensities = msg.intensities
-    real_range_max = max(msg.ranges)
     
+    # detect the min and max range #
+    real_range_max = max(msg.ranges)
     real_range_min = 10.0
-    for i in range(0, len(msg.ranges)):
+    for i in range(len(msg.ranges)):
         if msg.ranges[i] < real_range_min and msg.ranges[i] > 0.01:
             real_range_min = msg.ranges[i]
     if real_range_max > real_range_max_golbal:
@@ -36,7 +37,8 @@ def callback(msg):
         real_range_min_global = real_range_min
     print('real range max =', real_range_max_golbal, '  real range min =', real_range_min_global)
     
-    # pub.publish(scann)
+    # compute the precision #
+    
 
 def listener():
     rospy.init_node('revised_scan', anonymous=True)
