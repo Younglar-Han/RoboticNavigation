@@ -91,7 +91,7 @@ After code execution, we got that **real minimum of range is 0.091m and real max
 
 In this part, we will select the first element of every **msg.ranges** as the sample points, which reflects the distance between the center of the LiDAR rotation and the obstacle right in front of the LiDAR. By computing the range of this distance dataset, we can get the precision of LiDAR. By comparing the mean of the dataset and the ground truth, we can get the accuracy of LiDAR.
 
-In our code, we realize the idea as follow:(just the callback function):
+In our code, we realize the idea as follow:(just the callback function)
 
 ```python
 sample_point_max = 0.0
@@ -122,7 +122,7 @@ def callback(msg):
     print('precision =', sample_point_max - sample_point_min)
 ```
 
-After executing the code 3 time at difference position, we got this table(distance in m)
+After executing the code 3 time at difference position, we got this table:(distance in m)
 
 |  max   |  min   |  mean  | ground truth | precision | accuracy(abs) |
 | :----: | :----: | :----: | :----------: | :-------: | :-----------: |
