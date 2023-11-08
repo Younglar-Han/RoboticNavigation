@@ -1,0 +1,30 @@
+建立虚拟环境
+sudo apt install python3-venv
+python -m venv [env_name]
+
+设了一个目录, export 了一下:
+export PYENV=$ENV/PythonVirtualEnvs
+建了一个 follower 环境, 启动:
+. $PYENV/follower/bin/activate
+之后可以搞个 CLI 看.
+
+除了已经有的一些包,
+似乎还要 pip install pyyaml rospkg
+然后主要的:
+# pip install numpy==1.23.0 scipy==1.2.3 scikit-learn==0.21.1
+pip install numpy==1.22.0 scipy==1.2.3 scikit-learn==0.21.1
+
+---
+
+先 roscore，再在 Pi 上启动 bringup: roslaunch turtlebot3_bringup turtlebot3_robot.launch
+然后启动 roslaunch turtlebot3_follow_filter turtlebot3_follow_filter.launch
+	要把 filter/turtlebot3_follow_filter.yaml 里面所有 name 里的空格和点之类改掉
+	会把 /scan 滤成 /scan_filter
+
+然后启动 roslaunch turtlebot3_follower turtlebot3_follower.launch
+	记得在虚拟环境里
+	还有 config 里放适用 py3 的两个 clfxxx 文件，代码里改下读取
+
+然后因为原程序是 python2 的，有些地方需要改：
+	1、所有将 range 直接相加的地方给 range 套一个 list()
+	2、所有对字典使用 .iteritems() 的地方改为 .items()
