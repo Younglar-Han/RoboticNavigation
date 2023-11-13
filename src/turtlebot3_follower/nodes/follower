@@ -28,8 +28,10 @@ class follower:
         self.config_dir = os.path.dirname(os.path.abspath(__file__))
         self.config_dir = self.config_dir.replace('nodes', 'config')
         self.pub = rospy.Publisher('cmd_vel', Twist, queue_size = 1)
-        self.clf = pickle.load(open(self.config_dir + '/clf', "rb"),encoding="bytes")
-        self.clf2 = pickle.load(open(self.config_dir + '/clf2', "rb"), encoding="bytes")
+        with open(self.config_dir + '/clf_py3', 'rb') as f:
+            self.clf = pickle.load(f, encoding='latin1')
+        with open(self.config_dir + '/clf2_py3', 'rb') as f:
+            self.clf2 = pickle.load(f, encoding='latin1')
         self.labels = {'30_0':0, '30_l':1, '30_r':2, '45_0':3, '45_l':4, '45_r':5,'15_0':6, 'empty':7}
         rospy.loginfo('Tree initialized')
         self.follow()
@@ -41,12 +43,12 @@ class follower:
         ret = 0
         self.msg = rospy.wait_for_message("scan_filtered", LaserScan)
 
-        for i in range(70,-2,-1) + range(359, 289,-1):
+        for i in list(range(70,-2,-1)) + list(range(359, 289,-1)):
 
             if   np.nan_to_num( self.msg.intensities[i] ) != 0 :
                  laser_data.append(np.nan_to_num(self.msg.intensities[i]))
 
-            elif (i+1) in range(70,-2,-1) + range(359, 289,-1) and (i-1) in range(70,-2,-1) + range(359, 289,-1) and np.nan_to_num(self.msg.intensities[i]) == 0:
+            elif (i+1) in list(range(70,-2,-1)) + list(range(359, 289,-1)) and (i-1) in list(range(70,-2,-1)) + list(range(359, 289,-1)) and np.nan_to_num(self.msg.intensities[i]) == 0:
                  laser_data.append((np.nan_to_num(self.msg.intensities[i+1])+np.nan_to_num(self.msg.intensities[i-1]))/2)
 
             else :
@@ -54,7 +56,7 @@ class follower:
 
         laser_data_set.append(laser_data)
 
-        [x for (x , y) in self.labels.iteritems() if y == self.clf2.predict(laser_data_set) ] ## Predict the position
+        [x for (x , y) in self.labels.items() if y == self.clf2.predict(laser_data_set) ] ## Predict the position
 
         if result == ['empty']:
             ret = 0
@@ -69,12 +71,12 @@ class follower:
         data_test_set=[]
         self.msg = rospy.wait_for_message("scan_filtered", LaserScan)
 
-        for i in range(70,-2,-1) + range(359, 289,-1):
+        for i in list(range(70,-2,-1)) + list(range(359, 289,-1)):
 
             if   np.nan_to_num( self.msg.ranges[i] ) != 0 :
                  data_test.append(np.nan_to_num(self.msg.ranges[i]))
 
-            elif (i+1) in range(70,-2,-1) + range(359, 289,-1) and (i-1) in range(70,-2,-1) + range(359, 289,-1) and np.nan_to_num(self.msg.ranges[i]) == 0:
+            elif (i+1) in list(range(70,-2,-1)) + list(range(359, 289,-1)) and (i-1) in list(range(70,-2,-1)) + list(range(359, 289,-1)) and np.nan_to_num(self.msg.ranges[i]) == 0:
                  data_test.append((np.nan_to_num(self.msg.ranges[i+1])+np.nan_to_num(self.msg.ranges[i-1]))/2)
 
             else :
@@ -82,7 +84,7 @@ class follower:
 
         data_test_set.append(data_test)
 
-        return [x for (x , y) in self.labels.iteritems() if y == self.clf.predict(data_test_set) ] 
+        return [x for (x , y) in self.labels.items() if y == self.clf.predict(data_test_set) ] 
 
     def follow(self):
         while not rospy.is_shutdown():
