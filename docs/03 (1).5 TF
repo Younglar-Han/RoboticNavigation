@@ -1,0 +1,142 @@
+tf 两个话题，一个 tf 发布动态变化，一个 tf_static 发布静态关系。（尚不太明确）
+sudo apt install ros-noetic-rqt-tf-tree 之后，可以：rosrun rqt_tf_tree rqt_tf_tree 查看坐标关系。
+
+
+
+【非常好 odom 和 base_footprint，爱来自 turtlebot3_core（OpenCR Serial Port）】
+刚启动 bringup 时，tf 中只有 odom 和 base_footprint 两个坐标系，其变换由 turtlebot3_core 发布。
+	Update：由后可知这里 odom 可以当作世界原点，base_footprint 是底盘坐标。
+		可以 echo /odom 话题看一下 frame_id 和 child_frame_id，它就是二者之间的变换。
+		而 /odom 的结果来自于轮式里程计（平移）和 IMU（旋转），具体见后。
+也可以打开 rviz，fixed frame 设为 odom。Add 一个 TF。
+
+此时 roslaunch turtlebot3_teleop turtlebot3_teleop_key.launch，用键盘控制，可以看到 rviz 中 base_footprint 开始移动。
+前进后退并不会引起变化，手拿起来动会导致左右旋转，所以似乎有个 IMU？？？
+	破案了，挪动一下 OpenCR 板子坐标就动了，所以这板子上有 IMU，并且 base_footprint 是基于它的。
+		https://emanual.robotis.com/docs/en/parts/controller/opencr10/ 参数上可以看到。
+	去发布者 turtlebot3_core 里面看看：
+		turtle3_core 来自 <node pkg="rosserial_python" type="serial_node.py" name="turtlebot3_core" output="screen">，
+		即它实际上是一个 ROS 的串口通讯节点，所以显然这俩坐标系是 OpenCR 底盘发布的，应该从底板的角度来看它。
+			所以得看 OpenCR 的固件：https://github.com/ROBOTIS-GIT/OpenCR/tree/master
+【【【【【【【【【【【【【【以上都是猜测，实际分析见下】】】】】】】】】】】】】】】
+
+
+
+【OpenCR 和主板的通讯】
+先是 OpenCR 这边，刷固件后使用 arduino 开发，仓库提供了 ros 的接口：
+	https://github.com/ROBOTIS-GIT/OpenCR/tree/master/arduino/opencr_arduino/opencr/libraries/turtlebot3_ros_lib
+以及 tb3 的（应该是这）：
+	https://github.com/ROBOTIS-GIT/OpenCR/tree/master/arduino/opencr_arduino/opencr/libraries/turtlebot3/src/turtlebot3
+外面还有一些 sensor 的驱动，比如 imu，都在上面被调用了。
+具体主程序是哪个还是什么的就不管了，问题不大。
+	【～～～～～！】Update: 好像在这：https://github.com/ROBOTIS-GIT/OpenCR/blob/68ec75d8a400949580ecf263e0105ea9743b878e/arduino/opencr_arduino/opencr/libraries/turtlebot3/examples/turtlebot3_burger/turtlebot3_core/turtlebot3_core.ino#L40
+
+总之里面会通过串口发布一些 topic 之类，例如 /imu，消息类型是 sensor_msgs/Imu，也可以在 turtlebot3_ros_lib 里找到。
+数据内容是这些，序列化后通过串口发给主机，那头再解序列化，把 topic 名和内容之类提取出来，然后实际地进行发布操作。
+
+这一过程在主机侧由上面的 turtlebot3_core 完成，即 rosserial_python 包下的 serial_node.py：
+	https://github.com/flynneva/ros2serial_python/blob/main/nodes/serial_node.py
+串口操作封装于：
+	https://github.com/flynneva/ros2serial_python/blob/main/ros2serial_python/client.py
+	SerialClient 类下的 run 方法中大概能看到接收的情况，比如 505 和 510 行的接收 topic id 和 serialized message。
+后面怎么解析怎么发没仔细看，总之过程是这么个过程。
+【【【【【 一句话：OpenCR 固件通过各外设驱动获取、发送传感器和驱动器信息，并通过串口让主机帮忙把话题发到 ROS 网络中。】】】】】
+
+具体发了什么可以 rosnode info /turtlebot3_core 看一下：
+ * /battery_state [sensor_msgs/BatteryState]
+ 	电池状态。试了下好像没 echo 什么东西，需要看代码。
+ * /cmd_vel_rc100 [geometry_msgs/Twist]
+ 	rostopic info 可以看到 cmd_vel 被 turtlebot3_core（也即 OpenCR 的化身（x），下略）订阅，cmd_vel_rc100 由 turtlebot3_core 发布。
+ 	不过用不到，rc100 是一款遥控器，估计是 OpenCR 接收遥控器信号，把它作为话题发布到 ROS 中，供主机想用就用。
+		也就是说有这个遥控器的话，把 cmd_vel_rc100 和 cmd_vel 一连，应该就能用遥控器控制了（罢）。
+ * /diagnostics [diagnostic_msgs/DiagnosticArray]
+ 	诊断信息。
+ * /firmware_version [turtlebot3_msgs/VersionInfo]
+ 	固件版本。
+ * /imu [sensor_msgs/Imu]
+ 	发来的 IMU 信息。
+ * /joint_states [sensor_msgs/JointState]
+ 	电机关节角信息。
+ 		问题：echo 出来发现不太对，也不受运动与否的影响，不知道是什么。
+ 		检查了代码感觉和想的一样，完全没问题，不知道为什么。
+ 		………………不会是固件版本问题吧。
+ 			试了下更新到 latest 固件，寄了（Checksum 对不上了），然后回滚回 1.2.2。
+ 			然后不知道为什么，好了，好了……
+ 				不确定是因为重新烧了一遍固件还是因为中间断电重来了一下，没做好记录。
+ 				总之现在 joint_states 正常了，后面的 sensor_state 也有输出了。
+ 				rviz 里轮子坐标系也跟着转了。
+ * /magnetic_field [sensor_msgs/MagneticField]
+ 	IMU 的磁力计信息吧。
+ * /odom [nav_msgs/Odometry]
+ 	里程计信息。看 header/frame_id 是相对 tf 中 odom 系的，还有 child_frame_id 表明这个就是 base_footprint 相对 odom 的位置。
+ 	试验可知其旋转信息完全来自 IMU，其坐标信息来自轮式里程计的计算（用了 IMU 的方向信息）。
+ 		试验：拿起来让他 teleop 转向旋转信息不会变化；拿起来让他 teleop 前进后退，其位置信息变化，此时转向也会影响 x、y 的变化方向。
+ 		检查代码验证：https://github.com/ROBOTIS-GIT/OpenCR/blob/68ec75d8a400949580ecf263e0105ea9743b878e/arduino/opencr_arduino/opencr/libraries/turtlebot3/examples/turtlebot3_burger/turtlebot3_core/turtlebot3_core.ino
+ 			500 行 calcOdometry 函数，可以看到 orientation 是从传感器获取的，
+ 			然后位置是通过两个轮子 delta 时间内的旋转量来算的，
+ 			轮子的旋转情况是通过 updateMotorInfo 更新的，数据由轮式编码器 (encoder) 提供。
+ 	关于漂移：rostopic echo /odom 一下就能看到 x, y 在疯狂漂移（…………………………）。
+ 		【【【【【重新折腾固件或者重启后它好了，joint_states 一旦正常，坐标也就确实不怎么漂了……情况见前面 joint_states 】】】】】
+ * /rosout [rosgraph_msgs/Log]
+ * /sensor_state [turtlebot3_msgs/SensorState]
+ 	一些 sensor 状态的发布，比如 push button。
+ * /tf [tf/tfMessage]
+ 	坐标系信息，应该就是前面发的 odom 和 base_footprint。
+ 
+同时它订阅了：
+ * /cmd_vel [unknown type]
+ 	运动受控。
+ * /motor_power [unknown type]
+ 	直接控制电机？没看，不确定。
+ * /reset [unknown type]
+ 	std_msgs/Empty 类型，看名字是重置，试一下：rostopic pub /reset std_msgs/Empty，确实重置了：
+ 		rviz 里已经漂飞的 base_footprint 系回到了和 odom 系对齐的状态。
+ 	有个好玩的：如果机器人正在旋转的时候发个 Reset，停止旋转后它在 rviz 里会开始转，还没确定是什么机制导致的。
+ * /sound [unknown type]
+ 	没管。
+
+
+
+【一堆 _link 坐标系】
+有 robot_state_publisher 和 robot_description 时就会发布这些坐标系。
+robot_state_publisher 会发布 base_link 相对 base_footprint 的变换，
+	（rviz 里的高度看起来像是两个轮子中心连线的中心在机器人底下那块板上的投影点，同时也是 base_footprint 正上方底板的位置）
+然后是 wheel_left_link, wheel_right_link相对 base_link 的变换，
+	（俩轮子的，平移关系固定，会转，转轴 z 轴）
+以及 base_scan（雷达的），caster_back_link（似乎是万向轮），imu_link（OpenCR上的 IMU，这个估计实际放得不准，都没固定）等，相对 base_link 的变换。
+
+
+
+【关于 robot_state_publisher】
+	一开始发现是运行 laser_filters 时在此之前只运行 bringup 时只有 odom 和 base_footprint，
+	但俺寻思这些坐标应该由 OpenCR 发过来的，事实上代码里也是这么写的.
+		一半原因：用 rviz 看，rqt_tf_tree 似乎只显示动态发布的变换，而 rviz 会记录历史变换，特别是静态的那些。
+	新的问题：停止了 laser_filters 后两个轮子的坐标系消失了。
+		似乎固件里确实没有建立俩轮子的坐标（看 bringup 初始化时的输出信息），
+		那么就去检查 laser_filters 的 scan_to_scan_filter_chain 吧。
+	破案了：和 laser_filters 没关系，是我运行的 launch 里运行了 turtlebot3_remote.launch，这里头：
+			<include file="$(find turtlebot3_bringup)/launch/includes/description.launch.xml">
+				<arg name="model" value="$(arg model)" />
+			</include>
+			<node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher">
+				<param name="publish_frequency" type="double" value="50.0" />
+				<param name="tf_prefix" value="$(arg multi_robot_name)"/>
+			</node>
+		包含了另一个 description.launch.xml（里面发布了 robot_description 参数，它包含机器人的一些机械上的参数），
+		并启动了 robot_state_publisher，它会根据 robot_description parameter 来构建一些坐标信息。
+			【【【去包 turtlebot3_description/urdf/turtlebot3_burger.urdf.xacro 能看到一切】】】
+		这也解决了前面的问题（应该是这样）：为什么运行 robot_state_publisher 前没有这些次级 _link？
+			因为 base_link 是在这一步建立的，而其他一些 _link 又是 base_link 的子结点，
+			所以在 base_link 出现之前与 tf_tree 是断开的。
+【【【【【【结论：启动系统的正确方法】】】】】】
+	先在电脑上 roslaunch turtlebot3_bringup turtlebot3_remote.launch
+		名字就叫 remote，和 robot 对应，早该发现的。
+	然后在 Pi 上 roslaunch turtlebot3_bringup turtlebot3_robot.launch
+	刚刚在 turtlebot3_description/urdf 同目录还发现一个 rviz 文件夹，里面的 model.rviz 多半是配置好的 rviz 界面，所以还可以在电脑上：
+		rviz -d `rospack find turtlebot3_description`/rviz/model.rviz
+	什么都有了！
+
+【Update：麻了，感觉逻辑太通，仔细查了一下，人家文档果然有讲：https://emanual.robotis.com/docs/en/platform/turtlebot3/bringup/#bringup，所以一定要仔细看文档！！！】
+
+
+
