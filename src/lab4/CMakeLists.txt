@@ -192,6 +192,10 @@ include_directories(
 #   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 # )
 
+catkin_install_python(PROGRAMS scripts/pole_follower.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
 #############
 ## Testing ##
 #############
