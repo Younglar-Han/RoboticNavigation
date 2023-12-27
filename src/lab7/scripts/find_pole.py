@@ -6,11 +6,44 @@ from std_msgs.msg import String
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist
 import numpy as np
+import tf
+from PIL import Image
 
 nav_goal = 0  # the goal point
 nav_state = 1  # 0:not naving  1:naving
 track_state = 0  # 0:not tracking  1:tracking
+# 全局变量
+listener = None  # tf监听器
+map_data = None  # 存储地图数据
 
+# 墙的阈值
+wall_threshold = 50
+
+map_file = "docs/map.pgm"  # 修改为你的地图文件路径
+
+def load_map(map_file):
+    """
+    从pgm文件加载地图，并将其转换为numpy数组。
+    :param map_file: 地图文件的路径。
+    :return: numpy数组形式的地图数据。
+    """
+    try:
+        # 使用Pillow库加载地图图像
+        map_image = Image.open(map_file)
+        
+        # 将图像转换为灰度格式（如果尚未是灰度图）
+        map_image = map_image.convert('L')
+        
+        # 将图像数据转换为numpy数组
+        map_data = np.array(map_image)
+        
+        return map_data
+    except Exception as e:
+        print("Failed to load map file:", e)
+        return None
+
+# 使用函数加载地图
+map_data = load_map(map_file)
 
 def move_to_goal(point):
     # 创建一个action client来与move_base服务器交互
@@ -68,72 +101,47 @@ def nav_pose():
             pass
 
 
-def pole_track(msg):
-    global nav_goal
-    global nav_state
-    global track_state
 
-    threshold = 10  # 阈值，绝对值大于该值认为是杆子
-    max_width = 3  # 突变索引小于3认为是杆子
+def pole_track(msg):
+    global nav_goal, nav_state, track_state, listener, map_data
 
     if track_state != 0:
         pub = rospy.Publisher('cmd_vel', Twist, queue_size=1)
 
-        # 应用一维卷积来找到杆子位置
-        convolved = np.convolve(msg.ranges, [1, -1], 'valid')
+        if listener is None or map_data is None:
+            return
 
-        # 检测显著的突变点
-        significant_changes = []
-        for i in range(len(convolved)):
-            print(max(abs(convolved)))
-            if abs(convolved[i]) > threshold:  # 需要根据实际情况设置一个合适的阈值
-                significant_changes.append(i)
+        try:
+            (trans, rot) = listener.lookupTransform('/map', '/base_link', rospy.Time(0))
+        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+            rospy.loginfo("TF Exception")
+            return
 
-        # 判断杆子的位置
-        poles = []
-        for i in range(len(significant_changes) - 1):
-            # 如果两个显著变化点的距离在一定范围内，认为它们可能是杆子的两侧
-            if 0 < significant_changes[i + 1] - significant_changes[i] <= max_width:  # max_width是杆子的最大宽度的索引差
-                poles.append((significant_changes[i], significant_changes[i + 1]))
+        closest_point = None
+        closest_distance = float('inf')
 
-        # 替换了原有检测方法，没有检测到杆子以后才用最小距离索引
-    # if track_state != 0:
-    #     pub = rospy.Publisher('cmd_vel', Twist, queue_size=1)
-    #     range_min = 10.0
-    #     for i in range(len(msg.ranges)):
-    #         if msg.ranges[i] < range_min and msg.ranges[i] != 0.0:
-    #             range_min = msg.ranges[i]
-    #             range_min_index = i
-    #     print('min:', range_min, 'index: ', range_min_index)
+        for i, range in enumerate(msg.ranges):
+            if range < msg.range_max:  # 检查距离是否有效
+                # 计算激光点的角度和距离
+                angle = msg.angle_min + i * msg.angle_increment
+                laser_point = [range * np.cos(angle), range * np.sin(angle), 0.0]
 
-            # 计算检测到的杆子的中心位置
-            if poles:
-                # 假设处理第一个检测到的杆子
-                start, end = poles[0]
-                pole_index = (start + end) // 2
-            else:
-                # 如果没有检测到杆子，使用默认的最小距离索引
-                pole_index = msg.ranges.index(min(msg.ranges))
+                # 将激光点转换为地图坐标
+                map_point = point_laser_to_map(laser_point, trans, rot)
+                if not is_wall(map_point) and range < closest_distance:
+                    closest_distance = range
+                    closest_point = i  # 保存最近的非墙壁点的索引
+                    print(closest_point)
 
         twist = Twist()
 
         ## method 1
-        # if (range_min < 1.5 and range_min > 0.2):
-        #     if range_min_index > 10 and range_min_index < 180:
-        #         twist.angular.z = (range_min_index - 10) / 180.0 * 2.0 + 0.5
-        #     elif range_min_index > 180 and range_min_index < 350:
-        #         twist.angular.z = (range_min_index - 350) / 180.0 * 2.0 - 0.5
-        #     elif range_min_index > 350 or range_min_index < 10:
-        #         twist.linear.x = 0.21
-        #     print('linear.x:', twist.linear.x, 'angular.z:', twist.angular.z)
-        #     pub.publish(twist)
-
-        if msg.ranges[pole_index] < 1.5 and msg.ranges[pole_index] > 0.2:
-            if pole_index > 10 and pole_index < 180:
-                twist.angular.z = (pole_index - 10) / 180.0 * 2.0 + 0.5
-            elif pole_index > 180 and pole_index < 350:
-                twist.angular.z = (pole_index - 350) / 180.0 * 2.0 - 0.5
-            elif pole_index > 350 or pole_index < 10:
+        if (closest_point < 1.5 and closest_point > 0.2):
+            if closest_point > 10 and closest_point < 180:
+                twist.angular.z = (closest_point - 10) / 180.0 * 2.0 + 0.5
+            elif closest_point > 180 and closest_point < 350:
+                twist.angular.z = (closest_point - 350) / 180.0 * 2.0 - 0.5
+            elif closest_point > 350 or closest_point < 10:
                 twist.linear.x = 0.21
             print('linear.x:', twist.linear.x, 'angular.z:', twist.angular.z)
             pub.publish(twist)
@@ -147,6 +155,49 @@ def pole_track(msg):
         nav_pose()
     pass
 
+
+def point_laser_to_map(laser_point, trans, rot):
+    # 这里暂且不考虑z轴，因为在二维地图中我们主要关注x和y。
+    laser_x, laser_y, _ = laser_point
+    trans_x, trans_y, _ = trans
+
+    # 计算激光点相对于机器人的全局坐标
+    # 旋转矩阵（仅在二维平面上旋转）
+    theta = tf.transformations.euler_from_quaternion(rot)[2]  # 获取欧拉角的Z轴旋转分量
+    global_x = trans_x + laser_x * np.cos(theta) - laser_y * np.sin(theta)
+    global_y = trans_y + laser_x * np.sin(theta) + laser_y * np.cos(theta)
+
+    # 将全局坐标转换为地图像素坐标（假设你已经知道地图的分辨率和原点位置）
+    # 注意：这里需要根据你实际地图的元数据进行调整
+    map_resolution = 0.05  # 地图分辨率，单位：米/像素
+    origin_x, origin_y = -10, -10  # 地图原点在地图像素坐标系中的位置
+
+    map_x = int((global_x / map_resolution) + origin_x)
+    map_y = int((global_y / map_resolution) + origin_y)
+
+    return map_x, map_y
+
+
+def is_wall(map_point):
+    """
+    判断给定的地图坐标点是否为墙。
+    :param map_point: 地图坐标系中的点，格式为(x, y)。
+    :return: 布尔值，如果该点是墙则为True，否则为False。
+    """
+    global map_data
+    x, y = map_point
+
+    # 检查坐标是否在地图范围内
+    if 0 <= x < map_data.shape[1] and 0 <= y < map_data.shape[0]:
+        # 读取对应点的值（这里假设map_data已经是二维数组形式的地图数据）
+        pixel_value = map_data[y][x]
+
+        # 判断是否为墙，这里阈值需要根据你的地图进行调整
+        # 通常地图中，较高的值表示被占据（可能是墙），较低的值表示自由空间
+        return pixel_value > wall_threshold
+    else:
+        # 如果点不在地图上，返回False
+        return False
 
 def nav_track():
     rospy.init_node('nav_track', anonymous=True)
