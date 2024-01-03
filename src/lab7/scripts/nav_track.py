@@ -7,10 +7,12 @@ from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist
 import numpy as np
 import time
+import sys
 
+NAV = 1
+TRACK = 0
 nav_goal = 0  # the goal point
-nav_state = 1  # 0:not naving  1:naving
-track_state = 0  # 0:not tracking  1:tracking
+sys_state = NAV
 lidar_update_time = 0
 
 def move_to_goal(point):
@@ -50,8 +52,8 @@ def move_to_goal(point):
 
 def nav_pose():
     global nav_goal
-    global nav_state
-    global track_state
+    global sys_state
+    global lidar_update_time
         
     points = np.zeros((7,3))
     points[0] = [-3.963, -3.517, 0.0] # P2
@@ -62,69 +64,61 @@ def nav_pose():
     points[5] = [0.016, 0.00, 0.0] # P4 center
     points[6] = [-3.800, 0.434, 0.0] # P1
     print('naving')
-    if nav_state != 0:
+    if sys_state == NAV:
         try:
             result = move_to_goal(points[nav_goal])
             if result:
-                nav_state = 0
-                track_state = 1
+                nav_goal += 1
+                if nav_goal % 2 == 0:
+                    sys_state = TRACK
+                    lidar_update_time = 0
+            if nav_goal >= len(points):
+                print("END")
+                rospy.signal_shutdown("END")
         except rospy.ROSInterruptException:
             pass
     
 def pole_track(msg):
     global nav_goal
-    global nav_state
-    global track_state
+    global sys_state
     global lidar_update_time
     
-    if lidar_update_time < 10:
-        lidar_update_time += 1
-        print('lidar_update_time:', lidar_update_time)
-        return
+    if sys_state == TRACK:
+        if lidar_update_time < 15:
+            lidar_update_time += 1
+            print('lidar_update_time:', lidar_update_time, end='\r')
+            return
+        pub = rospy.Publisher('cmd_vel', Twist, queue_size=1)
+        range_min = 10.0
+        for i in range(len(msg.ranges)):
+            if msg.ranges[i] < range_min and msg.ranges[i] != 0.0:
+                range_min = msg.ranges[i]
+                range_min_index = i
+                range_min_angle = msg.angle_min + i * msg.angle_increment
+                range_min_angle = range_min_angle * 180.0 / 3.1415926
+                if range_min_angle > 180:
+                    range_min_angle = range_min_angle - 360  # -180 ~ 180
+        print('min:', range_min, 'index: ', range_min_index)
 
-    if track_state != 0:
-        if nav_goal % 2 == 1:
-            pub = rospy.Publisher('cmd_vel', Twist, queue_size=1)
-            range_min = 10.0
-            for i in range(len(msg.ranges)):
-                if msg.ranges[i] < range_min and msg.ranges[i] != 0.0:
-                    range_min = msg.ranges[i]
-                    range_min_index = i
-            print('min:', range_min, 'index: ', range_min_index)
-
-            twist = Twist()
-            
-            ## method 1
-            if (range_min < 1.5 and range_min > 0.2):
-                if range_min_index > 10 and range_min_index < 180:
-                    twist.angular.z = (range_min_index - 10)/180.0 * 2.0 + 0.5
-                elif range_min_index > 180 and range_min_index < 350:
-                    twist.angular.z = (range_min_index - 350)/180.0 * 2.0 - 0.5
-                elif range_min_index > 350 or range_min_index < 10:
-                    twist.linear.x = 0.21
-                print('linear.x:', twist.linear.x, 'angular.z:', twist.angular.z)
-                pub.publish(twist)
-            elif (range_min < 0.2):
-                if range_min_index > 10 and range_min_index < 180:
-                    twist.angular.z = (range_min_index - 10)/180.0 * 2.0 + 0.5
-                elif range_min_index > 180 and range_min_index < 350:
-                    twist.angular.z = (range_min_index - 350)/180.0 * 2.0 - 0.5
-                print('linear.x:', twist.linear.x, 'angular.z:', twist.angular.z)
-                pub.publish(twist)
-                if range_min_index > 350 or range_min_index < 10:
-                    print('linear.x:', twist.linear.x, 'angular.z:', twist.angular.z)
-                    pub.publish(twist)
-                    time.sleep(2.0)
-                    nav_goal += 1
-                    nav_state = 1
-                    track_state = 0
-        else:
-            nav_goal += 1
-            nav_state = 1
-            track_state = 0
+        twist = Twist()
+        
+        range_threshold = 0.2
+        angle_threshold = 10
+        twist = Twist()
+        if range_min > range_threshold:
+            if abs(range_min_angle) < angle_threshold:
+                twist.linear.x = 0.21
+        if abs(range_min_angle) > angle_threshold:
+            twist.angular.z = range_min_angle/180.0 * 2.0 + np.sign(range_min_angle) * 0.5
+        
+        print('linear.x:', twist.linear.x, 'angular.z:', twist.angular.z)
+        pub.publish(twist)
+        if range_min < range_threshold and abs(range_min_angle) < angle_threshold:
+            sys_state = NAV
+            print('Arrived at the pole!')
+            time.sleep(1.0)
     else: 
         nav_pose()
-        lidar_update_time = 0
     pass
 
 def nav_track():
